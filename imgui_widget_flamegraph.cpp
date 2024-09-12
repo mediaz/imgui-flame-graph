@@ -25,7 +25,19 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
-void ImGuiWidgetFlameGraph::PlotFlame(const char* label, void (*values_getter)(float* start, float* end, ImU8* level, const char** caption, const void* data, int idx), const void* data, int values_count, int values_offset, const char* overlay_text, float scale_min, float scale_max, ImVec2 graph_size)
+void ImGuiWidgetFlameGraph::PlotFlame(
+	const char* label,
+	void (*values_getter)(float* start, float* end, ImU8* level, const char** caption, const char** tooltip, ImColor* color, const void* data, int idx),
+	const void* data,
+	int values_count,
+	int values_offset,
+	const char* overlay_text,
+	float* scale_min,
+	float* scale_max,
+	ImVec2 graph_size,
+    float zoom_speed,
+	void (*click_callback)(const void* data, int idx)
+    )
 {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
@@ -39,7 +51,7 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label, void (*values_getter)(f
     for (int i = values_offset; i < values_count; ++i)
     {
         ImU8 depth;
-        values_getter(nullptr, nullptr, &depth, nullptr, data, i);
+        values_getter(nullptr, nullptr, &depth, nullptr, nullptr, nullptr, data, i);
         maxDepth = ImMax(maxDepth, depth);
     }
 
@@ -57,24 +69,74 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label, void (*values_getter)(f
     if (!ImGui::ItemAdd(total_bb, 0, &frame_bb))
         return;
 
-    // Determine scale from values if not specified
-    if (scale_min == FLT_MAX || scale_max == FLT_MAX)
+    
+    float v_scale_min = scale_min ? *scale_min : FLT_MAX;
+	float v_scale_max = scale_max ? *scale_max : FLT_MAX;
+
+	// Determine scale from values if not specified
+	float v_min = FLT_MAX;
+	float v_max = -FLT_MAX;
+	for (int i = values_offset; i < values_count; i++)
+	{
+		float v_start, v_end;
+		values_getter(&v_start, &v_end, nullptr, nullptr, nullptr, nullptr, data, i);
+		if (v_start == v_start) // Check non-NaN values
+			v_min = ImMin(v_min, v_start);
+		if (v_end == v_end) // Check non-NaN values
+			v_max = ImMax(v_max, v_end);
+	}
+	if (v_scale_min == FLT_MAX)
+		v_scale_min = v_min;
+	if (v_scale_max == FLT_MAX)
+		v_scale_max = v_max;
+
+    bool dynamic_zoom_enabled = scale_min && scale_max;
+
+    if (dynamic_zoom_enabled && ImGui::IsItemHovered() && ImGui::IsMouseHoveringRect(inner_bb.Min, inner_bb.Max))
     {
-        float v_min = FLT_MAX;
-        float v_max = -FLT_MAX;
-        for (int i = values_offset; i < values_count; i++)
+        // Zoom on mouse wheel based on the mouse position
+        const float wheel = ImGui::GetIO().MouseWheel;
+		bool updated = false;
+        if (wheel != 0)
         {
-            float v_start, v_end;
-            values_getter(&v_start, &v_end, nullptr, nullptr, data, i);
-            if (v_start == v_start) // Check non-NaN values
-                v_min = ImMin(v_min, v_start);
-            if (v_end == v_end) // Check non-NaN values
-                v_max = ImMax(v_max, v_end);
+		    float mouse_pos_percentage =
+			    (ImGui::GetIO().MousePos.x - inner_bb.Min.x) / inner_bb.GetWidth();
+			mouse_pos_percentage = ImClamp(mouse_pos_percentage, 0.0f, 1.0f);
+
+            float mouse_pos_percentage_scaled = mouse_pos_percentage * (v_scale_max - v_scale_min) + v_scale_min;
+
+            float min_mouse_diff = mouse_pos_percentage_scaled - v_scale_min;
+			float max_mouse_diff = v_scale_max - mouse_pos_percentage_scaled;
+
+            v_scale_min = v_scale_min + min_mouse_diff * zoom_speed * wheel;
+			v_scale_max = v_scale_max - max_mouse_diff * zoom_speed * wheel;
+            			
+            updated = true;
         }
-        if (scale_min == FLT_MAX)
-            scale_min = v_min;
-        if (scale_max == FLT_MAX)
-            scale_max = v_max;
+
+		// Pan the view based on the mouse movement
+		if (ImGui::IsMouseDragging(1))
+		{
+			ImVec2 mouse_delta = ImGui::GetIO().MouseDelta;
+			float duration = v_scale_max - v_scale_min;
+			float delta = duration * (mouse_delta.x / inner_bb.GetWidth());
+			float diff = ImMin(v_max - v_scale_max, v_scale_min - v_min);
+            delta = ImMin(delta, diff);
+
+            v_scale_min -= delta;
+			v_scale_max -= delta;
+		    
+            updated = true;
+        }
+
+        v_scale_min = ImMax(v_scale_min, v_min);
+        v_scale_max = ImMin(v_scale_max, v_max);
+
+        if (updated)
+		{
+			*scale_min = v_scale_min;
+			*scale_max = v_scale_max;
+		}
     }
 
     ImGui::RenderFrame(frame_bb.Min, frame_bb.Max, ImGui::GetColorU32(ImGuiCol_FrameBg), true, style.FrameRounding);
@@ -82,27 +144,23 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label, void (*values_getter)(f
     bool any_hovered = false;
     if (values_count - values_offset >= 1)
     {
-        const ImU32 col_base = ImGui::GetColorU32(ImGuiCol_PlotHistogram) & 0x77FFFFFF;
-        const ImU32 col_hovered = ImGui::GetColorU32(ImGuiCol_PlotHistogramHovered) & 0x77FFFFFF;
-        const ImU32 col_outline_base = ImGui::GetColorU32(ImGuiCol_PlotHistogram) & 0x7FFFFFFF;
-        const ImU32 col_outline_hovered = ImGui::GetColorU32(ImGuiCol_PlotHistogramHovered) & 0x7FFFFFFF;
-
         for (int i = values_offset; i < values_count; ++i)
         {
-            float stageStart, stageEnd;
-            ImU8 depth;
-            const char* caption;
+            float stageStart = 0.0f, stageEnd = 0.0f;
+			ImU8 depth = 0;
+            const char* caption = nullptr;
+			const char* tooltip = nullptr;
+			ImColor color{};
+            values_getter(&stageStart, &stageEnd, &depth, &caption, &tooltip, &color, data, i);
 
-            values_getter(&stageStart, &stageEnd, &depth, &caption, data, i);
-
-            auto duration = scale_max - scale_min;
+            auto duration = v_scale_max - v_scale_min;
             if (duration == 0)
             {
                 return;
             }
 
-            auto start = stageStart - scale_min;
-            auto end = stageEnd - scale_min;
+            auto start = stageStart - v_scale_min;
+            auto end = stageEnd - v_scale_min;
 
             auto startX = static_cast<float>(start / (double)duration);
             auto endX = static_cast<float>(end / (double)duration);
@@ -116,13 +174,36 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label, void (*values_getter)(f
             bool v_hovered = false;
             if (ImGui::IsMouseHoveringRect(pos0, pos1))
             {
-                ImGui::SetTooltip("%s: %8.4g", caption, stageEnd - stageStart);
+				if (*tooltip)
+					ImGui::SetTooltip("%s", tooltip);
+				else
+                    ImGui::SetTooltip("%s: %8.4g", caption, stageEnd - stageStart);
                 v_hovered = true;
                 any_hovered = v_hovered;
             }
 
-            window->DrawList->AddRectFilled(pos0, pos1, v_hovered ? col_hovered : col_base);
-            window->DrawList->AddRect(pos0, pos1, v_hovered ? col_outline_hovered : col_outline_base);
+            if (dynamic_zoom_enabled && ImGui::IsMouseHoveringRect(pos0, pos1) && ImGui::IsMouseClicked(0))
+			{
+				*scale_min = stageStart;
+				*scale_max = stageEnd;
+                if (click_callback)
+                {
+                    click_callback(data, i);
+                }
+			}
+
+            float h, s, v;
+
+            ImGui::ColorConvertRGBtoHSV(color.Value.x, color.Value.y, color.Value.z, h, s, v);
+
+			ImU32 color_base = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(h, s, v)) & 0x77FFFFFF;
+            ImU32 color_hovered = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(h, s, v + 0.2f)) & 0x77FFFFFF;
+			ImU32 outline = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(h, s, v - 0.2f)) & 0x7FFFFFFF;
+			ImU32 outline_hovered = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(h, s, v + 0.4f)) & 0x7FFFFFFF;
+
+
+            window->DrawList->AddRectFilled(pos0, pos1, v_hovered ? color_hovered : color_base);
+            window->DrawList->AddRect(pos0, pos1, v_hovered ? outline_hovered : outline);
             auto textSize = ImGui::CalcTextSize(caption);
             auto boxSize = (pos1 - pos0);
             auto textOffset = ImVec2(0.0f, 0.0f);
