@@ -165,6 +165,12 @@ void ImGuiWidgetFlameGraph::PlotFlame(
             auto startX = static_cast<float>(start / (double)duration);
             auto endX = static_cast<float>(end / (double)duration);
 
+            startX = ImClamp(startX, 0.0f, 1.0f);
+            endX = ImClamp(endX, 0.0f, 1.0f);
+
+            if (startX == 1.0f || endX == 0.0f)
+				continue;
+
             float width = inner_bb.Max.x - inner_bb.Min.x;
             float height = blockHeight * (maxDepth - depth + 1) - style.FramePadding.y;
 
