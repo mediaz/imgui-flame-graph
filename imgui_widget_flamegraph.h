@@ -34,6 +34,13 @@
 
 namespace ImGuiWidgetFlameGraph
 {
+
+IMGUI_API enum InteractionType
+{
+	IMGUI_INTERACTION_TYPE_HOVERED,
+	IMGUI_INTERACTION_TYPE_CLICKED
+};
+
 IMGUI_API void PlotFlame(const char* label,
 						 void (*values_getter)(float* start,
 											   float* end,
@@ -41,6 +48,7 @@ IMGUI_API void PlotFlame(const char* label,
 											   const char** caption,
 											   const char** tooltip,
 											   ImColor* color,
+											   bool* is_hovered_externally,
 											   const void* data,
 											   int idx),
 						 const void* data,
@@ -51,6 +59,6 @@ IMGUI_API void PlotFlame(const char* label,
 	float* scale_max = nullptr,
 	ImVec2 graph_size = ImVec2(0, 0),
 	float zoom_speed = 0.1f,
-	void(*click_callback)(const void* data, int idx) = nullptr
+	void(*interaction_callback)(InteractionType interaction_type, const void* data, int idx) = nullptr
 	);
 }

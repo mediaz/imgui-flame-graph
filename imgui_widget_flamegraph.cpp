@@ -25,19 +25,25 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
-void ImGuiWidgetFlameGraph::PlotFlame(
-	const char* label,
-	void (*values_getter)(float* start, float* end, ImU8* level, const char** caption, const char** tooltip, ImColor* color, const void* data, int idx),
-	const void* data,
-	int values_count,
-	int values_offset,
-	const char* overlay_text,
-	float* scale_min,
-	float* scale_max,
-	ImVec2 graph_size,
-    float zoom_speed,
-	void (*click_callback)(const void* data, int idx)
-    )
+void ImGuiWidgetFlameGraph::PlotFlame(const char* label,
+									  void (*values_getter)(float* start,
+															float* end,
+															ImU8* level,
+															const char** caption,
+															const char** tooltip,
+															ImColor* color,
+															bool* is_hovered_externally,
+															const void* data,
+															int idx),
+									  const void* data,
+									  int values_count,
+									  int values_offset,
+									  const char* overlay_text,
+									  float* scale_min,
+									  float* scale_max,
+									  ImVec2 graph_size,
+									  float zoom_speed,
+	void (*interaction_callback)(ImGuiWidgetFlameGraph::InteractionType interaction_type, const void* data, int idx))
 {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
@@ -51,7 +57,7 @@ void ImGuiWidgetFlameGraph::PlotFlame(
     for (int i = values_offset; i < values_count; ++i)
     {
         ImU8 depth;
-        values_getter(nullptr, nullptr, &depth, nullptr, nullptr, nullptr, data, i);
+        values_getter(nullptr, nullptr, &depth, nullptr, nullptr, nullptr, nullptr, data, i);
         maxDepth = ImMax(maxDepth, depth);
     }
 
@@ -79,7 +85,7 @@ void ImGuiWidgetFlameGraph::PlotFlame(
 	for (int i = values_offset; i < values_count; i++)
 	{
 		float v_start, v_end;
-		values_getter(&v_start, &v_end, nullptr, nullptr, nullptr, nullptr, data, i);
+		values_getter(&v_start, &v_end, nullptr, nullptr, nullptr, nullptr, nullptr, data, i);
 		if (v_start == v_start) // Check non-NaN values
 			v_min = ImMin(v_min, v_start);
 		if (v_end == v_end) // Check non-NaN values
@@ -151,7 +157,8 @@ void ImGuiWidgetFlameGraph::PlotFlame(
             const char* caption = nullptr;
 			const char* tooltip = nullptr;
 			ImColor color{};
-            values_getter(&stageStart, &stageEnd, &depth, &caption, &tooltip, &color, data, i);
+            bool is_hovered_externally = false;
+            values_getter(&stageStart, &stageEnd, &depth, &caption, &tooltip, &color, &is_hovered_externally, data, i);
 
             auto duration = v_scale_max - v_scale_min;
             if (duration == 0)
@@ -180,6 +187,10 @@ void ImGuiWidgetFlameGraph::PlotFlame(
             bool v_hovered = false;
             if (ImGui::IsMouseHoveringRect(pos0, pos1))
             {
+                if (interaction_callback)
+                {
+					interaction_callback(IMGUI_INTERACTION_TYPE_HOVERED, data, i);
+                }
 				if (*tooltip)
 					ImGui::SetTooltip("%s", tooltip);
 				else
@@ -192,9 +203,9 @@ void ImGuiWidgetFlameGraph::PlotFlame(
 			{
 				*scale_min = stageStart;
 				*scale_max = stageEnd;
-                if (click_callback)
+                if (interaction_callback)
                 {
-                    click_callback(data, i);
+					interaction_callback(IMGUI_INTERACTION_TYPE_CLICKED, data, i);
                 }
 			}
 
@@ -208,8 +219,9 @@ void ImGuiWidgetFlameGraph::PlotFlame(
 			ImU32 outline_hovered = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(h, s, v + 0.4f)) & 0x7FFFFFFF;
 
 
-            window->DrawList->AddRectFilled(pos0, pos1, v_hovered ? color_hovered : color_base);
-            window->DrawList->AddRect(pos0, pos1, v_hovered ? outline_hovered : outline);
+            window->DrawList->AddRectFilled(
+				pos0, pos1, (is_hovered_externally || v_hovered) ? color_hovered : color_base);
+			window->DrawList->AddRect(pos0, pos1, (is_hovered_externally || v_hovered) ? outline_hovered : outline);
             auto textSize = ImGui::CalcTextSize(caption);
             auto boxSize = (pos1 - pos0);
             auto textOffset = ImVec2(0.0f, 0.0f);
