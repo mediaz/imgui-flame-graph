@@ -228,7 +228,11 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label,
             if (textSize.x < boxSize.x)
             {
                 textOffset = ImVec2(0.5f, 0.5f) * (boxSize - textSize);
+				if (is_hovered_externally || v_hovered)
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextSelectedBg));
                 ImGui::RenderText(pos0 + textOffset, caption);
+				if (is_hovered_externally || v_hovered)
+                    ImGui::PopStyleColor();
             }
         }
 
