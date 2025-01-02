@@ -103,7 +103,7 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label,
         // Zoom on mouse wheel based on the mouse position
         const float wheel = ImGui::GetIO().MouseWheel;
 		bool updated = false;
-        if (wheel != 0)
+		if (wheel != 0 && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
         {
 		    float mouse_pos_percentage =
 			    (ImGui::GetIO().MousePos.x - inner_bb.Min.x) / inner_bb.GetWidth();
@@ -246,6 +246,6 @@ void ImGuiWidgetFlameGraph::PlotFlame(const char* label,
 
     if (!any_hovered && ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("Total: %8.4g", scale_max - scale_min);
+        ImGui::SetTooltip("Total: %8.4g\n Ctrl + Scroll To Zoom", scale_max - scale_min);
     }
 }
